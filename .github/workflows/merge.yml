@@ -1,20 +1,66 @@
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
-
+---
 name: "Merge"
 
+on:
+  workflow_run:
+    workflows:
+      - "Continuous Integration"
+    types:
+      - completed
+
 jobs:
-  merge:
-    name: "Merge"
+  debug-merge:
+    name: "Workflow success"
 
     runs-on: "ubuntu-latest"
 
     if: >
-      success() &&
+        github.workflow_run.conclusion == 'success'
+
+    steps:
+        - name: "Context"
+          uses: actions/github-script@v3
+          with:
+            script: console.log(context)
+
+  debug-merge2:
+    name: "No-Draft"
+
+    runs-on: "ubuntu-latest"
+
+    if: >
+        github.workflow_run.pull_request.draft == false
+
+    steps:
+        - name: "Context"
+          uses: actions/github-script@v3
+          with:
+            script: console.log(context)
+
+  debug-merge3:
+    name: "Label"
+
+    runs-on: "ubuntu-latest"
+
+    if: >
+        contains(github.event.pull_request.labels.*.name, 'automerge')
+
+    steps:
+        - name: "Context"
+          uses: actions/github-script@v3
+          with:
+            script: console.log(context)
+
+  automerge:
+    name: "Automerge"
+
+    runs-on: "ubuntu-latest"
+
+    if: >
       github.event_name == 'pull_request' &&
-      github.event.pull_request.draft == false &&
-      contains(github.event.pull_request.labels.*.name, 'automerge')
+      github.workflow_run.conclusion == 'success' &&
+      github.workflow_run.pull_request.draft == false &&
+      contains(github.workflow_run.pull_request.labels.*.name, 'automerge')
 
     steps:
       - name: "Request review from @nucleos-bot"
@@ -24,9 +70,11 @@ jobs:
           script: |
             const pullRequest = context.payload.pull_request
             const repository = context.repo
+
             const reviewers = [
               "nucleos-bot",
             ]
+
             await github.pulls.requestReviewers({
               owner: repository.owner,
               pull_number: pullRequest.number,
@@ -41,9 +89,11 @@ jobs:
           script: |
             const pullRequest = context.payload.pull_request
             const repository = context.repo
+
             const reviewers = [
               "nucleos-bot",
             ]
+
             await github.issues.addAssignees({
               assignees: reviewers,
               issue_number: pullRequest.number,
@@ -78,4 +128,16 @@ jobs:
               owner: repository.owner,
               pull_number: pullRequest.number,
               repo: repository.repo,
+            })
+
+      - name: "Remove label"
+        uses: "actions/github-script@v3"
+        with:
+          github-token: ${{ secrets.NUCLEOS_BOT_TOKEN }}
+          script: |
+            github.issues.removeLabel({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'automerge'
             })
